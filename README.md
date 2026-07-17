@@ -11,7 +11,7 @@ Claude Code  →  bridge.py (:4000)  →  CLIProxyAPI (:8317)  →  Antigravity 
 | **CLIProxyAPI** | Ставится **отдельно** (не входит в этот репозиторий) | Upstream-прокси, порт **8317** |
 | **bridge.py** | Этот репозиторий | Политика моделей, ретраи, cooldown, квоты; порт **4000** |
 | **Claude Code** | npm | Клиент — ходит **на bridge** (`:4000`) |
-| **Quota Inspector** | Опционально, отдельно | Снимок квот CPA для логов bridge |
+| **Quota Inspector** | Опционально: `git clone` + `go build` | Снимок квот CPA для логов bridge |
 
 Bridge не заменяет CLIProxyAPI: без запущенного CPA bridge ходить некуда.  
 Обратно CPA работает и **без** bridge — но тогда не будет rewrite / fallback / cooldown из `bridge.py`.
@@ -24,9 +24,10 @@ Bridge не заменяет CLIProxyAPI: без запущенного CPA brid
 |------|------------|
 | `bridge.py` | FastAPI reverse-proxy |
 | `check_models.py` | Smoke-тест моделей через bridge |
+| `opus.bat` | Быстрый запуск Claude Code → bridge (Opus) |
 | `.env.example` | Шаблон конфига → `copy .env.example .env` |
 
-Бинарники CLIProxyAPI и Quota Inspector **не коммитятся** — ставятся с их релизов.
+CLIProxyAPI и Quota Inspector **не входят** в этот репозиторий: CPA — с [релизов](https://github.com/router-for-me/CLIProxyAPI/releases), inspector — через `git clone` (см. ниже).
 
 ---
 
@@ -73,6 +74,18 @@ C:\tools\CLIProxyAPI\
 #   - "your-api-key-1"
 ```
 
+   - Включите **Management API** (нужен для Quota Inspector).  
+     Пустой `secret-key` = Management API **выключен** → все `/v0/management/*` отвечают **404**, даже если `/v1/models` = 200:
+
+```yaml
+remote-management:
+  allow-remote: false
+  secret-key: "your-management-key"   # plaintext; CPA при старте захэширует — это нормально
+```
+
+Тот же ключ потом пропишите в `.env` bridge как `CPA_MANAGEMENT_KEY` (см. ниже).  
+Без inspector / квот секцию можно оставить с пустым `secret-key`.
+
 Порт по умолчанию: **8317** (`port:` в `config.yaml`).
 
 Документация upstream: https://help.router-for.me/ · https://github.com/router-for-me/CLIProxyAPI
@@ -111,16 +124,19 @@ CPA_BASE_URL=http://127.0.0.1:8317
 UPSTREAM_API_KEY=sk-antigravity
 ```
 
-Для квот (опционально) — management key из `remote-management` в `config.yaml` CPA:
+Для квот (опционально) — **тот же** ключ, что `remote-management.secret-key` в `config.yaml` CPA:
 
 ```env
 CPA_MANAGEMENT_KEY=your-management-key
 ```
 
-И путь к inspector, если он не лежит рядом с репо (см. [Quota Inspector](#quota-inspector-опционально)):
+Ключ только в `.env` недостаточно: если в CPA `secret-key: ""`, Management API выключен и inspector получит **404**.  
+Подробнее: [Management API и ключ](#management-api-и-ключ-для-квот).
+
+Путь к собранному inspector (см. [Quota Inspector](#quota-inspector-опционально)):
 
 ```env
-QUOTA_INSPECTOR_PATH=C:\tools\cpa-quota-inspector.exe
+QUOTA_INSPECTOR_PATH=C:\tools\CLIProxyAPI-Quota-Inspector\cpa-quota-inspector.exe
 ```
 
 `.env` в `.gitignore` — секреты не коммитить.
@@ -160,34 +176,43 @@ python check_models.py
 
 ### 3. Claude Code → bridge
 
+`ANTHROPIC_BASE_URL` — **bridge (:4000)**, не CPA (:8317).
+
+#### Через `opus.bat` (в корне репозитория)
+
+После запуска CPA и bridge:
+
+```powershell
+cd <корень-этого-репозитория>
+.\opus.bat
+```
+
+Скрипт задаёт:
+
+```batch
+@echo off
+set ANTHROPIC_BASE_URL=http://localhost:4000
+set ANTHROPIC_API_KEY=sk-any-dummy
+set ANTHROPIC_MODEL=claude-opus-4-6-thinking
+set CLAUDE_CODE_DISABLE_PARALLEL_TOOLS=1
+claude
+```
+
+| Переменная | Значение | Зачем |
+|------------|----------|--------|
+| `ANTHROPIC_BASE_URL` | `http://localhost:4000` | Claude Code → bridge |
+| `ANTHROPIC_API_KEY` | dummy | CC требует непустой ключ; auth делает CPA |
+| `ANTHROPIC_MODEL` | `claude-opus-4-6-thinking` | heavy-цепочка Opus → Sonnet |
+| `CLAUDE_CODE_DISABLE_PARALLEL_TOOLS` | `1` | без параллельных tool-call |
+
+Можно править `opus.bat` под себя (модель, URL, если сменили `BRIDGE_PORT`).
+
+#### Вручную (PowerShell)
+
 ```powershell
 $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:4000"
 $env:ANTHROPIC_API_KEY  = "sk-antigravity"
 $env:ANTHROPIC_MODEL    = "claude-opus-4-6-thinking"
-claude
-```
-
-`ANTHROPIC_BASE_URL` — **bridge (:4000)**, не CPA (:8317).
-
-#### BAT (Claude Code)
-
-`claude-opus.bat`:
-
-```batch
-@echo off
-set ANTHROPIC_BASE_URL=http://127.0.0.1:4000
-set ANTHROPIC_API_KEY=sk-antigravity
-set ANTHROPIC_MODEL=claude-opus-4-6-thinking
-claude
-```
-
-`claude-sonnet.bat`:
-
-```batch
-@echo off
-set ANTHROPIC_BASE_URL=http://127.0.0.1:4000
-set ANTHROPIC_API_KEY=sk-antigravity
-set ANTHROPIC_MODEL=claude-sonnet-4-6
 claude
 ```
 
@@ -214,8 +239,8 @@ claude
 | `CPA_BASE_URL` | `http://127.0.0.1:8317` | URL **внешнего** CLIProxyAPI |
 | `UPSTREAM_API_KEY` | `sk-antigravity` | `x-api-key` к CPA |
 | `BRIDGE_HOST` / `BRIDGE_PORT` | `127.0.0.1` / `4000` | Listen bridge |
-| `CPA_MANAGEMENT_KEY` | — | Management key CPA (квоты) |
-| `QUOTA_INSPECTOR_PATH` | рядом с репо `…/cpa-quota-inspector.exe` | Полный путь к binary, если inspector не в репо |
+| `CPA_MANAGEMENT_KEY` | — | Тот же plaintext, что `remote-management.secret-key` в CPA (квоты) |
+| `QUOTA_INSPECTOR_PATH` | `…/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe` | Путь к `.exe` после `git clone` + `go build` |
 | `QUOTA_POLL_INTERVAL` | `300` | Опрос квот, сек |
 | `CLAUDE_HEAVY_MODELS` | opus…, sonnet… | Fallback heavy |
 | `HAIKU_TARGET_MODEL` | `gemini-3.1-pro-low` | Куда уходит haiku |
@@ -235,21 +260,88 @@ claude
 
 ## Quota Inspector (опционально)
 
-Не обязателен для работы bridge.
+Не обязателен для работы bridge. Нужны **Git** и **Go**.
 
-1. Возьмите binary с [релизов CLIProxyAPI-Quota-Inspector](https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector/releases) или соберите из исходников: [github.com/AllenReder/CLIProxyAPI-Quota-Inspector](https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector) (`go build -o cpa-quota-inspector.exe .`).
-2. Положите куда угодно и укажите в `.env`:
+### Установка
+
+Клонируйте репозиторий (отдельно от bridge) и соберите binary:
+
+```powershell
+# куда удобно, например C:\tools
+cd C:\tools
+
+git clone https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector.git
+cd CLIProxyAPI-Quota-Inspector
+
+# go build только из этой папки (где go.mod), не из корня bridge
+go build -o cpa-quota-inspector.exe .
+```
+
+Без `cd` в каталог клона Go ответит `cannot find main module` — module живёт только там.
+
+Репозиторий: https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector
+
+### Подключение к bridge
+
+В `.env` bridge укажите путь к собранному `.exe` и management key:
 
 ```env
-QUOTA_INSPECTOR_PATH=C:\tools\cpa-quota-inspector.exe
+QUOTA_INSPECTOR_PATH=C:\tools\CLIProxyAPI-Quota-Inspector\cpa-quota-inspector.exe
 CPA_MANAGEMENT_KEY=your-management-key
 ```
 
 Если `QUOTA_INSPECTOR_PATH` не задан, bridge ищет  
-`<корень-репо>/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe` — удобно, только если вы сами положили exe туда локально.
+`<корень-bridge>/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe`  
+(удобно, если клон лежит рядом с bridge и вы уже сделали `go build` внутри него).
 
-Нет binary или ключа — warning в логе, bridge без квот.  
+Нет binary, ключа или Management API в CPA — warning в логе, bridge без квот.  
 Снимок: логи и `GET /health` → `quota`.
+
+### Management API и ключ для квот
+
+Inspector ходит в **Management API** CPA (`/v0/management/*`), не в обычный `/v1/...`.
+
+| Endpoint | Если CPA «просто запущен» |
+|----------|---------------------------|
+| `/v1/models` | обычно **200** |
+| `/v0/management/*` | **404**, пока Management API выключен |
+
+В `config.yaml` CPA:
+
+```yaml
+remote-management:
+  # secret-key: ""          # пусто = Management API отключён → 404 на все /v0/management
+  allow-remote: false
+  secret-key: "your-management-key"   # тот же, что CPA_MANAGEMENT_KEY в .env bridge
+```
+
+**Шаги:**
+
+1. Задайте `secret-key` в `config.yaml` CPA и **тот же** plaintext в `.env` bridge:
+
+```env
+CPA_MANAGEMENT_KEY=your-management-key
+```
+
+2. **Перезапустите CLIProxyAPI** (остановить процесс → снова `.\cli-proxy-api.exe`).  
+   При старте CPA захэширует plaintext `secret-key` (в файле появится hash вида `$2a$...`) — это нормально.
+
+3. Проверка Management API (не 404; **200** = ок, **401** = management включён, но ключ неверный):
+
+```powershell
+Invoke-WebRequest -Uri "http://127.0.0.1:8317/v0/management/auth-files" `
+  -Headers @{ Authorization = "Bearer your-management-key" }
+```
+
+4. Перезапустите bridge — warning про inspector / 404 должен пропасть.
+
+| Ответ | Смысл |
+|-------|--------|
+| **404** | `secret-key` пустой / Management API выключен |
+| **401** | Management включён, но ключ в `.env` ≠ `secret-key` в CPA |
+| **200** + JSON | всё ок |
+
+Ключ в `.env` (`CPA_MANAGEMENT_KEY`) и `secret-key` в `config.yaml` CPA должны совпадать.
 
 ---
 
@@ -272,9 +364,12 @@ Bridge и Claude Code — вручную или своим скриптом.
 | Claude Code без политики bridge | `ANTHROPIC_BASE_URL=http://127.0.0.1:4000` |
 | **Unauthorized** | Из папки CPA: `.\cli-proxy-api.exe --antigravity-login` |
 | **Rate limit / quota** | Подождать; bridge ретраит; добавить аккаунты в CPA |
-| Quota inspector warning | `QUOTA_INSPECTOR_PATH` + `CPA_MANAGEMENT_KEY` в `.env` |
+| Quota inspector → **404** | В CPA `secret-key: ""` — Management API выключен; задайте `secret-key`, перезапустите CPA |
+| Quota inspector → **401** | Management включён, но `CPA_MANAGEMENT_KEY` ≠ `secret-key` |
+| Quota inspector warning | `git clone` + `go build`? `QUOTA_INSPECTOR_PATH`? Ключ в CPA **и** в `.env`? |
 | Брандмауэр | Разрешить CPA / Python на localhost |
-| Проверка CPA | `Invoke-WebRequest http://127.0.0.1:8317/v1/models` |
+| Проверка CPA (API) | `Invoke-WebRequest http://127.0.0.1:8317/v1/models` |
+| Проверка Management API | Bearer-запрос к `/v0/management/auth-files` (см. выше) |
 | Проверка bridge | `curl http://127.0.0.1:4000/health` |
 
 ---
@@ -283,4 +378,4 @@ Bridge и Claude Code — вручную или своим скриптом.
 
 - [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) · [релизы](https://github.com/router-for-me/CLIProxyAPI/releases)
 - [Документация](https://help.router-for.me/)
-- [CLIProxyAPI Quota Inspector](https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector) · [релизы](https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector/releases)
+- [CLIProxyAPI Quota Inspector](https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector) — `git clone https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector.git`
