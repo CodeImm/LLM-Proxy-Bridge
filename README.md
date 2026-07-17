@@ -6,26 +6,66 @@
 Claude Code  →  bridge.py (:4000)  →  CLIProxyAPI (:8317)  →  Antigravity / провайдеры
 ```
 
-| Компонент | Где берётся | Роль |
-|-----------|-------------|------|
-| **CLIProxyAPI** | Ставится **отдельно** (не входит в этот репозиторий) | Upstream-прокси, порт **8317** |
-| **bridge.py** | Этот репозиторий | Политика моделей, ретраи, cooldown, квоты; порт **4000** |
-| **Claude Code** | npm | Клиент — ходит **на bridge** (`:4000`) |
-| **Quota Inspector** | Опционально: `git clone` + `go build` | Снимок квот CPA для логов bridge |
+| Компонент           | Где берётся                                          | Роль                                                     |
+| ------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
+| **CLIProxyAPI**     | Ставится **отдельно** (не входит в этот репозиторий) | Upstream-прокси, порт **8317**                           |
+| **bridge.py**       | Этот репозиторий                                     | Политика моделей, ретраи, cooldown, квоты; порт **4000** |
+| **Claude Code**     | npm                                                  | Клиент — ходит **на bridge** (`:4000`)                   |
+| **Quota Inspector** | Опционально: `git clone` + `go build`                | Снимок квот CPA для логов bridge                         |
 
 Bridge не заменяет CLIProxyAPI: без запущенного CPA bridge ходить некуда.  
 Обратно CPA работает и **без** bridge — но тогда не будет rewrite / fallback / cooldown из `bridge.py`.
 
 ---
 
+## Покупка подписки Gemini (аккаунт Google)
+
+Antigravity / доступ к моделям завязан на **Google-аккаунт** с подпиской Gemini. При оформлении и входе соблюдайте безопасность — особенно если аккаунт покупали или заводили «под прокси».
+
+### Обязательно
+
+1. **VPN всегда включён** при входе в Google / Gemini / Antigravity.  
+   Один и тот же регион VPN, не прыгать странами в середине сессии. Без VPN — риск блокировок и «подозрительной активности».
+
+2. **2FA: приложение с одноразовыми кодами** (Google Authenticator, Authy и т.п.), не SMS.  
+   Сразу после настройки 2FA сохраните **резервные коды** в надёжном месте.
+
+### Сразу после покупки / получения доступа (по приоритету)
+
+1. **Завершить все сессии** в аккаунте Google — в первую очередь.  
+   [Google Account → Безопасность → Ваши устройства / управление сессиями](https://myaccount.google.com/device-activity) (или «Выйти на всех устройствах»).  
+   Так отрезаются чужие/старые логины, если аккаунт передавали или логинились с чужой машины.
+
+2. **Сменить пароль** (желательно сразу после сброса сессий).  
+   Новый длинный уникальный пароль + только ваше приложение 2FA.
+
+3. Проверить, что **2FA** действительно ваше приложение, а не чужой номер/устройство.
+
+4. Уже потом — логин в Antigravity через CPA (`--antigravity-login`), **снова с VPN**.
+
+### Краткий чеклист
+
+| Шаг | Действие                         |
+| --- | -------------------------------- |
+| 1   | VPN on (один регион)             |
+| 2   | Войти в Google                   |
+| 3   | 2FA-приложение + резервные коды  |
+| 4   | **Завершить все сессии**         |
+| 5   | Сменить пароль                   |
+| 6   | VPN on → Antigravity / CPA login |
+
+> Не храните пароль и 2FA-бэкап в том же чате/репо, что и `CPA_MANAGEMENT_KEY`. `.env` — локально, не в git.
+
+---
+
 ## Что в этом репозитории
 
-| Путь | Назначение |
-|------|------------|
-| `bridge.py` | FastAPI reverse-proxy |
-| `check_models.py` | Smoke-тест моделей через bridge |
-| `opus.bat` | Быстрый запуск Claude Code → bridge (Opus) |
-| `.env.example` | Шаблон конфига → `copy .env.example .env` |
+| Путь              | Назначение                                 |
+| ----------------- | ------------------------------------------ |
+| `bridge.py`       | FastAPI reverse-proxy                      |
+| `check_models.py` | Smoke-тест моделей через bridge            |
+| `opus.bat`        | Быстрый запуск Claude Code → bridge (Opus) |
+| `.env.example`    | Шаблон конфига → `copy .env.example .env`  |
 
 CLIProxyAPI и Quota Inspector **не входят** в этот репозиторий: CPA — с [релизов](https://github.com/router-for-me/CLIProxyAPI/releases), inspector — через `git clone` (см. ниже).
 
@@ -65,7 +105,6 @@ C:\tools\CLIProxyAPI\
 Имя папки и версия могут отличаться — дальше в командах подставьте **свой** путь.
 
 3. В папке CPA:
-
    - `config.example.yaml` → переименовать в `config.yaml` (если ещё нет).
    - В `config.yaml` **закомментируйте** `api-keys:` (иначе «invalid API key» на примерах):
 
@@ -74,13 +113,13 @@ C:\tools\CLIProxyAPI\
 #   - "your-api-key-1"
 ```
 
-   - Включите **Management API** (нужен для Quota Inspector).  
-     Пустой `secret-key` = Management API **выключен** → все `/v0/management/*` отвечают **404**, даже если `/v1/models` = 200:
+- Включите **Management API** (нужен для Quota Inspector).  
+  Пустой `secret-key` = Management API **выключен** → все `/v0/management/*` отвечают **404**, даже если `/v1/models` = 200:
 
 ```yaml
 remote-management:
   allow-remote: false
-  secret-key: "your-management-key"   # plaintext; CPA при старте захэширует — это нормально
+  secret-key: "your-management-key" # plaintext; CPA при старте захэширует — это нормально
 ```
 
 Тот же ключ потом пропишите в `.env` bridge как `CPA_MANAGEMENT_KEY` (см. ниже).  
@@ -198,12 +237,12 @@ set CLAUDE_CODE_DISABLE_PARALLEL_TOOLS=1
 claude
 ```
 
-| Переменная | Значение | Зачем |
-|------------|----------|--------|
-| `ANTHROPIC_BASE_URL` | `http://localhost:4000` | Claude Code → bridge |
-| `ANTHROPIC_API_KEY` | dummy | CC требует непустой ключ; auth делает CPA |
-| `ANTHROPIC_MODEL` | `claude-opus-4-6-thinking` | heavy-цепочка Opus → Sonnet |
-| `CLAUDE_CODE_DISABLE_PARALLEL_TOOLS` | `1` | без параллельных tool-call |
+| Переменная                           | Значение                   | Зачем                                     |
+| ------------------------------------ | -------------------------- | ----------------------------------------- |
+| `ANTHROPIC_BASE_URL`                 | `http://localhost:4000`    | Claude Code → bridge                      |
+| `ANTHROPIC_API_KEY`                  | dummy                      | CC требует непустой ключ; auth делает CPA |
+| `ANTHROPIC_MODEL`                    | `claude-opus-4-6-thinking` | heavy-цепочка Opus → Sonnet               |
+| `CLAUDE_CODE_DISABLE_PARALLEL_TOOLS` | `1`                        | без параллельных tool-call                |
 
 Можно править `opus.bat` под себя (модель, URL, если сменили `BRIDGE_PORT`).
 
@@ -220,11 +259,11 @@ claude
 
 ## Политика моделей (bridge)
 
-| Запрос клиента | Поведение |
-|----------------|-----------|
-| Haiku / id с `haiku` | → `HAIKU_TARGET_MODEL` (default `gemini-3.1-pro-low`) |
-| Opus / Sonnet / heavy-алиасы | `CLAUDE_HEAVY_MODELS`: Opus → Sonnet (без Gemini) |
-| Остальное | Passthrough |
+| Запрос клиента               | Поведение                                             |
+| ---------------------------- | ----------------------------------------------------- |
+| Haiku / id с `haiku`         | → `HAIKU_TARGET_MODEL` (default `gemini-3.1-pro-low`) |
+| Opus / Sonnet / heavy-алиасы | `CLAUDE_HEAVY_MODELS`: Opus → Sonnet (без Gemini)     |
+| Остальное                    | Passthrough                                           |
 
 Ретраи: `SAME_MODEL_RETRIES + 1` на модель. Cooldown — `COOLDOWN_*` в `.env`.
 
@@ -234,26 +273,26 @@ claude
 
 Шаблон — `.env.example`. Главное:
 
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `CPA_BASE_URL` | `http://127.0.0.1:8317` | URL **внешнего** CLIProxyAPI |
-| `UPSTREAM_API_KEY` | `sk-antigravity` | `x-api-key` к CPA |
-| `BRIDGE_HOST` / `BRIDGE_PORT` | `127.0.0.1` / `4000` | Listen bridge |
-| `CPA_MANAGEMENT_KEY` | — | Тот же plaintext, что `remote-management.secret-key` в CPA (квоты) |
-| `QUOTA_INSPECTOR_PATH` | `…/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe` | Путь к `.exe` после `git clone` + `go build` |
-| `QUOTA_POLL_INTERVAL` | `300` | Опрос квот, сек |
-| `CLAUDE_HEAVY_MODELS` | opus…, sonnet… | Fallback heavy |
-| `HAIKU_TARGET_MODEL` | `gemini-3.1-pro-low` | Куда уходит haiku |
-| `SAME_MODEL_RETRIES` | `4` | Доп. попытки на модель |
-| `COOLDOWN_*` | 60 / 1800 / 30 / 300 | TTL cooldown, сек |
+| Переменная                    | По умолчанию                                            | Описание                                                           |
+| ----------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| `CPA_BASE_URL`                | `http://127.0.0.1:8317`                                 | URL **внешнего** CLIProxyAPI                                       |
+| `UPSTREAM_API_KEY`            | `sk-antigravity`                                        | `x-api-key` к CPA                                                  |
+| `BRIDGE_HOST` / `BRIDGE_PORT` | `127.0.0.1` / `4000`                                    | Listen bridge                                                      |
+| `CPA_MANAGEMENT_KEY`          | —                                                       | Тот же plaintext, что `remote-management.secret-key` в CPA (квоты) |
+| `QUOTA_INSPECTOR_PATH`        | `…/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe` | Путь к `.exe` после `git clone` + `go build`                       |
+| `QUOTA_POLL_INTERVAL`         | `300`                                                   | Опрос квот, сек                                                    |
+| `CLAUDE_HEAVY_MODELS`         | opus…, sonnet…                                          | Fallback heavy                                                     |
+| `HAIKU_TARGET_MODEL`          | `gemini-3.1-pro-low`                                    | Куда уходит haiku                                                  |
+| `SAME_MODEL_RETRIES`          | `4`                                                     | Доп. попытки на модель                                             |
+| `COOLDOWN_*`                  | 60 / 1800 / 30 / 300                                    | TTL cooldown, сек                                                  |
 
 ---
 
 ## HTTP API bridge
 
-| Метод | Путь | Описание |
-|-------|------|----------|
-| `GET` | `/health` | Статус, токены, cooldown, snapshot квот |
+| Метод  | Путь           | Описание                                 |
+| ------ | -------------- | ---------------------------------------- |
+| `GET`  | `/health`      | Статус, токены, cooldown, snapshot квот  |
 | `POST` | `/v1/messages` | Anthropic Messages (stream / non-stream) |
 
 ---
@@ -301,9 +340,9 @@ CPA_MANAGEMENT_KEY=your-management-key
 
 Inspector ходит в **Management API** CPA (`/v0/management/*`), не в обычный `/v1/...`.
 
-| Endpoint | Если CPA «просто запущен» |
-|----------|---------------------------|
-| `/v1/models` | обычно **200** |
+| Endpoint           | Если CPA «просто запущен»             |
+| ------------------ | ------------------------------------- |
+| `/v1/models`       | обычно **200**                        |
 | `/v0/management/*` | **404**, пока Management API выключен |
 
 В `config.yaml` CPA:
@@ -312,7 +351,7 @@ Inspector ходит в **Management API** CPA (`/v0/management/*`), не в о�
 remote-management:
   # secret-key: ""          # пусто = Management API отключён → 404 на все /v0/management
   allow-remote: false
-  secret-key: "your-management-key"   # тот же, что CPA_MANAGEMENT_KEY в .env bridge
+  secret-key: "your-management-key" # тот же, что CPA_MANAGEMENT_KEY в .env bridge
 ```
 
 **Шаги:**
@@ -335,11 +374,11 @@ Invoke-WebRequest -Uri "http://127.0.0.1:8317/v0/management/auth-files" `
 
 4. Перезапустите bridge — warning про inspector / 404 должен пропасть.
 
-| Ответ | Смысл |
-|-------|--------|
-| **404** | `secret-key` пустой / Management API выключен |
-| **401** | Management включён, но ключ в `.env` ≠ `secret-key` в CPA |
-| **200** + JSON | всё ок |
+| Ответ          | Смысл                                                     |
+| -------------- | --------------------------------------------------------- |
+| **404**        | `secret-key` пустой / Management API выключен             |
+| **401**        | Management включён, но ключ в `.env` ≠ `secret-key` в CPA |
+| **200** + JSON | всё ок                                                    |
 
 Ключ в `.env` (`CPA_MANAGEMENT_KEY`) и `secret-key` в `config.yaml` CPA должны совпадать.
 
@@ -356,21 +395,21 @@ Bridge и Claude Code — вручную или своим скриптом.
 
 ## Если что-то не работает
 
-| Симптом | Что сделать |
-|---------|-------------|
-| **Invalid API key** | В `config.yaml` CPA закомментировать `api-keys:`; перезапустить CPA |
-| **Connection refused** на 8317 | CPA не запущен / другой `port` / неверный `CPA_BASE_URL` |
-| **Connection refused** на 4000 | Не запущен `python bridge.py` |
-| Claude Code без политики bridge | `ANTHROPIC_BASE_URL=http://127.0.0.1:4000` |
-| **Unauthorized** | Из папки CPA: `.\cli-proxy-api.exe --antigravity-login` |
-| **Rate limit / quota** | Подождать; bridge ретраит; добавить аккаунты в CPA |
-| Quota inspector → **404** | В CPA `secret-key: ""` — Management API выключен; задайте `secret-key`, перезапустите CPA |
-| Quota inspector → **401** | Management включён, но `CPA_MANAGEMENT_KEY` ≠ `secret-key` |
-| Quota inspector warning | `git clone` + `go build`? `QUOTA_INSPECTOR_PATH`? Ключ в CPA **и** в `.env`? |
-| Брандмауэр | Разрешить CPA / Python на localhost |
-| Проверка CPA (API) | `Invoke-WebRequest http://127.0.0.1:8317/v1/models` |
-| Проверка Management API | Bearer-запрос к `/v0/management/auth-files` (см. выше) |
-| Проверка bridge | `curl http://127.0.0.1:4000/health` |
+| Симптом                         | Что сделать                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Invalid API key**             | В `config.yaml` CPA закомментировать `api-keys:`; перезапустить CPA                       |
+| **Connection refused** на 8317  | CPA не запущен / другой `port` / неверный `CPA_BASE_URL`                                  |
+| **Connection refused** на 4000  | Не запущен `python bridge.py`                                                             |
+| Claude Code без политики bridge | `ANTHROPIC_BASE_URL=http://127.0.0.1:4000`                                                |
+| **Unauthorized**                | Из папки CPA: `.\cli-proxy-api.exe --antigravity-login`                                   |
+| **Rate limit / quota**          | Подождать; bridge ретраит; добавить аккаунты в CPA                                        |
+| Quota inspector → **404**       | В CPA `secret-key: ""` — Management API выключен; задайте `secret-key`, перезапустите CPA |
+| Quota inspector → **401**       | Management включён, но `CPA_MANAGEMENT_KEY` ≠ `secret-key`                                |
+| Quota inspector warning         | `git clone` + `go build`? `QUOTA_INSPECTOR_PATH`? Ключ в CPA **и** в `.env`?              |
+| Брандмауэр                      | Разрешить CPA / Python на localhost                                                       |
+| Проверка CPA (API)              | `Invoke-WebRequest http://127.0.0.1:8317/v1/models`                                       |
+| Проверка Management API         | Bearer-запрос к `/v0/management/auth-files` (см. выше)                                    |
+| Проверка bridge                 | `curl http://127.0.0.1:4000/health`                                                       |
 
 ---
 
