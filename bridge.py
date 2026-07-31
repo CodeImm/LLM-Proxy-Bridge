@@ -1,11 +1,16 @@
 """
 LLM Proxy — FastAPI reverse-proxy for Claude Code → CLIProxyAPI.
 
-Policy:
+Policy (default):
   • Heavy Claude requests → Prefer Opus, then Sonnet (Claude-only, no Gemini).
   • Haiku (simple CC tasks) → rewrite to gemini-3.1-pro-low.
   • Same-model retries give CPA time to rotate accounts on rate-limit/quota.
   • Quota inspector runs at startup and on an interval.
+
+Passthrough (no rewrite / no model fallback chain):
+  • Env: BRIDGE_PASSTHROUGH=1
+  • Per-request: header X-Bridge-Passthrough: 1  (or X-Bridge-Policy: passthrough)
+  • Header 0/false overrides global passthrough for that request.
 """
 
 from __future__ import annotations
@@ -21,7 +26,14 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+import sys
 from typing import Any, AsyncIterator, Literal
+
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import httpx
 import uvicorn
@@ -29,6 +41,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from rich.console import Console, Group
+from rich.live import Live
 from rich.logging import RichHandler
 from rich.markup import escape
 from rich.panel import Panel
@@ -110,9 +123,20 @@ def _env_csv(key: str, default: list[str]) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 PROXY_URL   = _env("CPA_BASE_URL", "http://127.0.0.1:8317").rstrip("/")
 BRIDGE_HOST = _env("BRIDGE_HOST", "127.0.0.1")
 BRIDGE_PORT = _env_int("BRIDGE_PORT", 4000)
+
+# When true: never rewrite models, never fall back to another model id.
+# Same-model retries + cooldowns still apply to the requested id.
+BRIDGE_PASSTHROUGH = _env_bool("BRIDGE_PASSTHROUGH", False)
 
 # Same-model retries let CLIProxyAPI rotate auth accounts on 429/quota.
 SAME_MODEL_RETRIES = _env_int("SAME_MODEL_RETRIES", 4)   # → up to N+1 attempts per model
@@ -195,6 +219,8 @@ QUOTA_INSPECTOR = (
 )
 QUOTA_POLL_INTERVAL = _env_float("QUOTA_POLL_INTERVAL", 300.0)  # seconds
 QUOTA_INSPECTOR_TIMEOUT = _env_float("QUOTA_INSPECTOR_TIMEOUT", 120.0)
+QUOTA_FILTER_MODEL_GROUP = _env("QUOTA_FILTER_MODEL_GROUP", "Claude/GPT")  # set to 'all' for full report
+QUOTA_LIVE_DISPLAY = _env_bool("QUOTA_LIVE_DISPLAY", True)  # pinned live updating display
 QUOTA_MANAGEMENT_KEY = (
     _env("CPA_MANAGEMENT_KEY")
     or _env("MANAGEMENT_PASSWORD")
@@ -263,6 +289,7 @@ class Stats:
 
 stats = Stats()
 last_quota: dict[str, Any] = {}
+quota_live: Live | None = None
 
 # ── HTTP Client ──────────────────────────────────────────────────────────
 
@@ -275,8 +302,35 @@ def get_client() -> httpx.AsyncClient:
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-def model_chain(model: str) -> list[str]:
+def resolve_passthrough(request: Request | None = None) -> bool:
+    """
+    Whether to skip model rewrite / multi-model fallback for this call.
+
+    Priority: per-request header → global BRIDGE_PASSTHROUGH.
+      X-Bridge-Passthrough: 1|true|yes|on  → force passthrough
+      X-Bridge-Passthrough: 0|false|no|off → force rewrite policy
+      X-Bridge-Policy: passthrough|raw|direct → force passthrough
+      X-Bridge-Policy: rewrite|default      → force rewrite policy
+    """
+    if request is not None:
+        raw = (request.headers.get("x-bridge-passthrough") or "").strip().lower()
+        if raw in ("1", "true", "yes", "on"):
+            return True
+        if raw in ("0", "false", "no", "off"):
+            return False
+        policy = (request.headers.get("x-bridge-policy") or "").strip().lower()
+        if policy in ("passthrough", "raw", "direct", "none"):
+            return True
+        if policy in ("rewrite", "default", "policy"):
+            return False
+    return BRIDGE_PASSTHROUGH
+
+
+def model_chain(model: str, *, passthrough: bool = False) -> list[str]:
     """Resolve rewrite + fallback chain for a requested model id."""
+    if passthrough:
+        return [model]
+
     if model in MODEL_REWRITE:
         return list(HAIKU_GEMINI)
 
@@ -608,7 +662,7 @@ def _account_block(report: dict[str, Any]) -> Group:
 
 
 def _render_quota_report(data: dict[str, Any]) -> None:
-    """Full per-account quota dump — Rich tables + colored bars."""
+    """Full or compact per-account quota dump — Rich tables + colored bars."""
     summary = data.get("summary") or {}
     reports: list[dict[str, Any]] = data.get("reports") or []
     provider_summaries: list[dict[str, Any]] = data.get("provider_summaries") or []
@@ -617,14 +671,99 @@ def _render_quota_report(data: dict[str, Any]) -> None:
     low = int(summary.get("low_accounts") or 0)
     border = "red" if exhausted else ("yellow" if low else "green")
 
+    target_group = QUOTA_FILTER_MODEL_GROUP.strip()
+
+    # If QUOTA_FILTER_MODEL_GROUP is set (e.g. 'Claude/GPT'), render a single compact table across all accounts
+    if target_group and target_group.lower() != "all":
+        target_lower = target_group.lower()
+        t = Table(
+            box=None,
+            show_header=True,
+            header_style="header",
+            pad_edge=False,
+            expand=True,
+            padding=(0, 1),
+            row_styles=["none", "dim"],
+        )
+        t.add_column("Account", style="model", min_width=24)
+        t.add_column(f"{target_group} Quota", min_width=26, no_wrap=True)
+        t.add_column("Reset", style="muted", width=12, no_wrap=True)
+        t.add_column("Status", width=10, no_wrap=True)
+
+        for report in reports:
+            name = _short_account_name(str(report.get("name") or "?"))
+            status = str(report.get("status") or "unknown")
+            windows = list(report.get("windows") or [])
+            windows.extend(report.get("additional_windows") or [])
+
+            matched_window = None
+            for w in windows:
+                w_label = str(w.get("label") or w.get("id") or "").lower()
+                if target_lower in w_label or w_label in target_lower:
+                    matched_window = w
+                    break
+
+            if matched_window:
+                rem = matched_window.get("remaining_percent")
+                exhausted_w = bool(matched_window.get("exhausted"))
+                reset = str(matched_window.get("reset_label") or "—")
+                rem_f = None if rem is None else float(rem)
+                bar = _bar_text(rem_f, exhausted=exhausted_w)
+            elif report.get("error"):
+                bar = Text(f"error: {report['error'][:30]}", style="error")
+                reset = "—"
+            else:
+                bar = Text("—", style="muted")
+                reset = "—"
+
+            t.add_row(name, bar, reset, _status_text(status))
+
+        # Compact summary footer
+        eq = summary.get("antigravity_equivalents") or summary.get("gemini_equivalents") or {}
+        footer_rows: list[tuple[str, Any]] = [
+            ("Accounts", Text(f"{len(reports)}  exhausted={exhausted}  low={low}", style="bold")),
+        ]
+        found_eq = False
+        if eq:
+            for k, v in sorted(eq.items()):
+                if target_lower in k.lower():
+                    footer_rows.append((str(k), Text(f"{v}%", style="info")))
+                    found_eq = True
+        if not found_eq and eq:
+            for k, v in sorted(eq.items()):
+                footer_rows.append((str(k), Text(f"{v}%", style="info")))
+
+        render_group = Group(
+            Rule("[header]CPA Quota[/header]", style=border),
+            Panel(
+                t,
+                title=f"[header]Compact Quota ({target_group})[/header]  [muted]{len(reports)} accounts[/muted]",
+                border_style=border,
+                padding=(0, 1),
+            ),
+            Panel(
+                _kv_table(footer_rows),
+                title="[summary]Summary[/summary]",
+                border_style=border,
+                padding=(0, 1),
+            ),
+        )
+
+        if quota_live is not None and quota_live.is_started:
+            quota_live.update(render_group, refresh=True)
+        else:
+            console.print()
+            console.print(render_group)
+            console.print()
+        return
+
+    # Full report (when QUOTA_FILTER_MODEL_GROUP is 'all')
+    render_parts: list[Any] = [Rule("[header]CPA Quota[/header]", style=border)]
+
     by_provider: dict[str, list[dict[str, Any]]] = {}
     for r in reports:
         by_provider.setdefault(r.get("provider") or "unknown", []).append(r)
 
-    console.print()
-    console.print(Rule("[header]CPA Quota[/header]", style=border))
-
-    # Provider summary blocks
     if provider_summaries:
         for ps in provider_summaries:
             title = str(ps.get("title") or ps.get("provider") or "Provider")
@@ -639,9 +778,9 @@ def _render_quota_report(data: dict[str, Any]) -> None:
             ]
             for row in ps.get("extras") or []:
                 rows.append((str(row.get("label", "?")), Text(str(row.get("value", "")), style="info")))
-            console.print(Panel(
+            render_parts.append(Panel(
                 _kv_table(rows),
-                title=f"[header]📊  {escape(title)} Summary[/header]",
+                title=f"[header]{escape(title)} Summary[/header]",
                 border_style=border,
                 padding=(0, 1),
             ))
@@ -651,18 +790,17 @@ def _render_quota_report(data: dict[str, Any]) -> None:
         status_counts = summary.get("status_counts") or {}
         provider_line = ", ".join(f"{k}={v}" for k, v in sorted(providers.items())) or "—"
         status_line = ", ".join(f"{k}={v}" for k, v in sorted(status_counts.items())) or "—"
-        console.print(Panel(
+        render_parts.append(Panel(
             _kv_table([
                 ("Accounts", Text(f"{accounts}  exhausted={exhausted}  low={low}", style="bold")),
                 ("Providers", provider_line),
                 ("Statuses", status_line),
             ]),
-            title="[header]📊  CPA Quota Summary[/header]",
+            title="[header]CPA Quota Summary[/header]",
             border_style=border,
             padding=(0, 1),
         ))
 
-    # Per-account details
     provider_titles = {
         "antigravity": "Antigravity",
         "gemini-cli": "Gemini CLI",
@@ -677,14 +815,13 @@ def _render_quota_report(data: dict[str, Any]) -> None:
             account_parts.append(_account_block(report))
 
         body: Any = Group(*account_parts) if account_parts else Text("no accounts", style="muted")
-        console.print(Panel(
+        render_parts.append(Panel(
             body,
-            title=f"[header]📋  {escape(title)}[/header]  [muted]{len(items)} accounts[/muted]",
+            title=f"[header]{escape(title)}[/header]  [muted]{len(items)} accounts[/muted]",
             border_style=border,
             padding=(0, 1),
         ))
 
-    # Global totals footer
     eq = summary.get("antigravity_equivalents") or summary.get("gemini_equivalents") or {}
     footer_rows: list[tuple[str, Any]] = [
         ("Accounts", Text(str(summary.get("accounts", 0)), style="bold")),
@@ -695,13 +832,20 @@ def _render_quota_report(data: dict[str, Any]) -> None:
     if eq:
         for k, v in sorted(eq.items()):
             footer_rows.append((str(k), Text(f"{v}%", style="info")))
-    console.print(Panel(
+    render_parts.append(Panel(
         _kv_table(footer_rows),
         title="[summary]Summary[/summary]",
         border_style=border,
         padding=(0, 1),
     ))
-    console.print()
+
+    full_renderable = Group(*render_parts)
+    if quota_live is not None and quota_live.is_started:
+        quota_live.update(full_renderable, refresh=True)
+    else:
+        console.print()
+        console.print(full_renderable)
+        console.print()
 
 
 async def refresh_quota(*, silent: bool = False) -> None:
@@ -785,15 +929,18 @@ def _log_final(
     is_stream: bool = False,
     has_system: bool = False,
     tools: list | None = None,
+    passthrough: bool = False,
 ) -> None:
     elapsed_s = elapsed_ms / 1000
     ok = result.used_model is not None
     status = "[success]✓[/success]" if ok else "[error]✗[/error]"
 
     effective = result.used_model or original_model
-    chain_start = model_chain(original_model)[0]
+    chain_start = model_chain(original_model, passthrough=passthrough)[0]
 
-    if original_model != chain_start:
+    if passthrough:
+        model_part = f"[model]{effective}[/model] [muted]passthrough[/muted]"
+    elif original_model != chain_start:
         model_part = f"[replace]{original_model}[/replace] → [model]{effective}[/model]"
     elif result.fallback_count > 0:
         model_part = f"[muted]{_short_model(chain_start)}[/muted] → [model]{effective}[/model]"
@@ -941,7 +1088,7 @@ async def call_upstream(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    global _http_client
+    global _http_client, quota_live
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(HTTP_TIMEOUT, connect=HTTP_CONNECT_TIMEOUT),
         limits=httpx.Limits(
@@ -955,10 +1102,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         _kv_table([
             ("Target", Text(PROXY_URL, style="bold cyan")),
             ("Listen", Text(f"{BRIDGE_HOST}:{BRIDGE_PORT}", style="bold cyan")),
-            ("Policy", Text.assemble(
-                ("Opus→Sonnet", "model"),
-                (" (Claude-only) · ", "muted"),
-                ("haiku→gemini-3.1-pro-low", "replace"),
+            ("Policy", (
+                Text("PASSTHROUGH — no rewrite / no model fallback", style="replace")
+                if BRIDGE_PASSTHROUGH
+                else Text.assemble(
+                    ("Opus→Sonnet", "model"),
+                    (" (Claude-only) · ", "muted"),
+                    ("haiku→gemini-3.1-pro-low", "replace"),
+                )
+            )),
+            ("Passthrough", Text(
+                "on (BRIDGE_PASSTHROUGH)" if BRIDGE_PASSTHROUGH
+                else "off · header X-Bridge-Passthrough: 1",
+                style="bold" if BRIDGE_PASSTHROUGH else "muted",
             )),
             ("Retries", Text(f"{SAME_MODEL_RETRIES + 1} / model", style="bold")),
             ("Quota", Text(f"every {QUOTA_POLL_INTERVAL:.0f}s", style="bold")),
@@ -967,6 +1123,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         border_style="bright_blue",
         padding=(0, 1),
     ))
+
+    if QUOTA_LIVE_DISPLAY:
+        quota_live = Live(
+            Text("Initialising quota monitor...", style="muted"),
+            console=console,
+            auto_refresh=False,
+            redirect_stdout=False,
+            redirect_stderr=False,
+        )
+        quota_live.start()
 
     await refresh_quota(silent=False)
 
@@ -982,6 +1148,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await quota_task
         except asyncio.CancelledError:
             pass
+        if quota_live is not None:
+            quota_live.stop()
+            quota_live = None
         await _http_client.aclose()
 
     n = max(stats.requests, 1)
@@ -1017,6 +1186,7 @@ async def health() -> dict:
         "unavailable": availability.cooldowns_snapshot(),
         "quota": last_quota,
         "policy": {
+            "passthrough": BRIDGE_PASSTHROUGH,
             "claude_heavy": CLAUDE_HEAVY,
             "haiku_rewrite": MODEL_REWRITE,
             "same_model_retries": SAME_MODEL_RETRIES,
@@ -1036,7 +1206,8 @@ async def messages(request: Request) -> StreamingResponse | JSONResponse:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     original_model = body.get("model", "unknown")
-    chain = model_chain(original_model)
+    passthrough = resolve_passthrough(request)
+    chain = model_chain(original_model, passthrough=passthrough)
     tools = body.get("tools")
     is_stream = body.get("stream", False)
     has_system = bool(body.get("system"))
@@ -1049,6 +1220,7 @@ async def messages(request: Request) -> StreamingResponse | JSONResponse:
         _log_final(
             req_id, original_model, result, 0, 0, elapsed,
             is_stream=is_stream, has_system=has_system, tools=tools,
+            passthrough=passthrough,
         )
         status = result.resp.status_code if result.resp is not None else 502
         # Keep 4xx from upstream; map total failure without body to 502
@@ -1076,6 +1248,7 @@ async def messages(request: Request) -> StreamingResponse | JSONResponse:
                 _log_final(
                     req_id, original_model, result, in_tok, out_tok, final_elapsed,
                     is_stream=True, has_system=has_system, tools=tools,
+                    passthrough=passthrough,
                 )
 
         return StreamingResponse(
@@ -1098,6 +1271,7 @@ async def messages(request: Request) -> StreamingResponse | JSONResponse:
     _log_final(
         req_id, original_model, result, in_tok, out_tok, elapsed,
         is_stream=False, has_system=has_system, tools=tools,
+        passthrough=passthrough,
     )
 
     return JSONResponse(resp_body, status_code=result.resp.status_code)

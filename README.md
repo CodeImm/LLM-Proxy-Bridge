@@ -8,10 +8,10 @@ Claude Code  →  bridge.py (:4000)  →  CLIProxyAPI (:8317)  →  Antigravity 
 
 | Компонент           | Где берётся                                          | Роль                                                     |
 | ------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
-| **CLIProxyAPI**     | Ставится **отдельно** (не входит в этот репозиторий) | Upstream-прокси, порт **8317**                           |
+| **CLIProxyAPI**     | Готовая сборка в репо или скачивание с нуля          | Upstream-прокси, порт **8317**                           |
 | **bridge.py**       | Этот репозиторий                                     | Политика моделей, ретраи, cooldown, квоты; порт **4000** |
 | **Claude Code**     | npm                                                  | Клиент — ходит **на bridge** (`:4000`)                   |
-| **Quota Inspector** | Опционально: `git clone` + `go build`                | Снимок квот CPA для логов bridge                         |
+| **Quota Inspector** | Готовая сборка в репо или `git clone` + `go build`   | Снимок квот CPA для логов bridge                         |
 
 Bridge не заменяет CLIProxyAPI: без запущенного CPA bridge ходить некуда.  
 Обратно CPA работает и **без** bridge — но тогда не будет rewrite / fallback / cooldown из `bridge.py`.
@@ -21,6 +21,11 @@ Bridge не заменяет CLIProxyAPI: без запущенного CPA brid
 ## Покупка подписки Gemini (аккаунт Google)
 
 Antigravity / доступ к моделям завязан на **Google-аккаунт** с подпиской Gemini. При оформлении и входе соблюдайте безопасность — особенно если аккаунт покупали или заводили «под прокси».
+
+> [!IMPORTANT]
+> **Требования к покупке аккаунта и первому входу:**
+> - Покупайте Google-аккаунты **только с доменом `@gmail.com`** и **обязательно включённой 2FA**.
+> - **Первичный вход:** после покупки первый раз войдите в **официальное приложение Antigravity**. Если система попросит отсканировать QR-код, войдите в аккаунт на телефоне и отсканируйте QR-код.
 
 ### Обязательно
 
@@ -36,12 +41,15 @@ Antigravity / доступ к моделям завязан на **Google-акк
    [Google Account → Безопасность → Ваши устройства / управление сессиями](https://myaccount.google.com/device-activity) (или «Выйти на всех устройствах»).  
    Так отрезаются чужие/старые логины, если аккаунт передавали или логинились с чужой машины.
 
-2. **Сменить пароль** (желательно сразу после сброса сессий).  
+2. **Отвязать все чужие номера телефонов и резервные email** (в настройках безопасности Google).  
+   Удалить привязанный номер телефона для восстановления и резервные адреса электронной почты продавца / предыдущего владельца, чтобы исключить возможность сброса пароля или восстановления доступа.
+
+3. **Сменить пароль** (желательно сразу после сброса сессий и отвязки контактов).  
    Новый длинный уникальный пароль + только ваше приложение 2FA.
 
-3. Проверить, что **2FA** действительно ваше приложение, а не чужой номер/устройство.
+4. Проверить, что **2FA** привязана только к вашему приложению / устройству.
 
-4. Уже потом — логин в Antigravity через CPA (`--antigravity-login`), **снова с VPN**.
+5. Уже потом — логин в Antigravity через CPA (`--antigravity-login`), **снова с VPN**.
 
 ### Краткий чеклист
 
@@ -51,8 +59,9 @@ Antigravity / доступ к моделям завязан на **Google-акк
 | 2   | Войти в Google                   |
 | 3   | 2FA-приложение + резервные коды  |
 | 4   | **Завершить все сессии**         |
-| 5   | Сменить пароль                   |
-| 6   | VPN on → Antigravity / CPA login |
+| 5   | **Отвязать все номера и email**  |
+| 6   | Сменить пароль                   |
+| 7   | VPN on → Antigravity / CPA login |
 
 > Не храните пароль и 2FA-бэкап в том же чате/репо, что и `CPA_MANAGEMENT_KEY`. `.env` — локально, не в git.
 
@@ -62,12 +71,15 @@ Antigravity / доступ к моделям завязан на **Google-акк
 
 | Путь              | Назначение                                 |
 | ----------------- | ------------------------------------------ |
-| `bridge.py`       | FastAPI reverse-proxy                      |
-| `check_models.py` | Smoke-тест моделей через bridge            |
-| `opus.bat`        | Быстрый запуск Claude Code → bridge (Opus) |
-| `.env.example`    | Шаблон конфига → `copy .env.example .env`  |
+| `bridge.py`                         | FastAPI reverse-proxy                                                 |
+| `check_models.py`                   | Smoke-тест моделей через bridge                                       |
+| `opus.bat`                          | Быстрый запуск Claude Code → bridge (Opus)                            |
+| `start.bat`                         | Быстрый запуск всех вкладок в Windows Terminal (CPA + bridge + opus) |
+| `CLIProxyAPI_6.9.48_windows_amd64/` | Готовая модифицированная сборка CLIProxyAPI                           |
+| `CLIProxyAPI-Quota-Inspector/`      | Готовая модифицированная сборка Quota Inspector                       |
+| `.env.example`                      | Шаблон конфига → `copy .env.example .env`                             |
 
-CLIProxyAPI и Quota Inspector **не входят** в этот репозиторий: CPA — с [релизов](https://github.com/router-for-me/CLIProxyAPI/releases), inspector — через `git clone` (см. ниже).
+Модифицированные сборки CLIProxyAPI и Quota Inspector **уже включены** в репозиторий. При желании их также можно скачать или собрать с нуля с официальных репозиториев (см. ниже).
 
 ---
 
@@ -92,17 +104,14 @@ CLIProxyAPI и Quota Inspector **не входят** в этот репозит�
 npm install -g @anthropic-ai/claude-code
 ```
 
-### 2. CLIProxyAPI (отдельно от репозитория)
+### 2. CLIProxyAPI
 
-1. Скачайте zip для Windows с [релизов CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI/releases)  
-   (обычно `CLIProxyAPI_*_windows_amd64.zip`).
-2. Распакуйте **куда удобно**, например:
-
-```text
-C:\tools\CLIProxyAPI\
-```
-
-Имя папки и версия могут отличаться — дальше в командах подставьте **свой** путь.
+> [!TIP]
+> **Варианты установки:**
+> - **Вариант А (готовая сборка из репозитория):** вы можете сразу использовать модифицированную сборку из папки `CLIProxyAPI_6.9.48_windows_amd64/`, включённую в данный репозиторий.
+> - **Вариант Б (установка с нуля):**
+>   1. Скачайте zip для Windows с [релизов CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI/releases) (обычно `CLIProxyAPI_*_windows_amd64.zip`).
+>   2. Распакуйте в нужную папку (например, `C:\tools\CLIProxyAPI\`).
 
 3. В папке CPA:
    - `config.example.yaml` → переименовать в `config.yaml` (если ещё нет).
@@ -137,6 +146,9 @@ remote-management:
 cd C:\tools\CLIProxyAPI   # ваш путь
 .\cli-proxy-api.exe --antigravity-login
 ```
+
+> [!NOTE]
+> Перед авторизацией через CPA убедитесь, что первый вход был выполнен в **официальное приложение Antigravity**. Если при входе запрашивается QR-код, авторизуйтесь в аккаунте на телефоне и отсканируйте его.
 
 Браузер → Google-аккаунт → после успеха процесс можно закрыть.
 
@@ -184,7 +196,23 @@ QUOTA_INSPECTOR_PATH=C:\tools\CLIProxyAPI-Quota-Inspector\cpa-quota-inspector.ex
 
 ## Ежедневный запуск
 
-Три независимых процесса:
+### Быстрый запуск (одной командой)
+
+В Windows Terminal (`wt.exe`):
+
+```powershell
+cd <корень-этого-репозитория>
+.\start.bat
+```
+
+Скрипт автоматически откроет 3 вкладки в Windows Terminal:
+1. **CLIProxyAPI** (из папки CPA)
+2. **bridge.py** (из корня репозитория)
+3. **Claude Code** (запуск `./opus.bat` в папке проекта)
+
+---
+
+### Запуск вручную (три независимых процесса)
 
 ### 1. CLIProxyAPI
 
@@ -212,6 +240,13 @@ python bridge.py
 curl http://127.0.0.1:4000/health
 python check_models.py
 ```
+
+Параметры `check_models.py`:
+- `--url http://localhost:4000` — URL bridge
+- `--api-key sk-antigravity` — API ключ к прокси
+- `--concurrency 4` — параллельность проверок
+- `--timeout 30.0` — таймаут на probe в секундах
+- `--thinking-param` / `--no-thinking-param` — доп. проверки с параметром thinking в body (default: `on`)
 
 ### 3. Claude Code → bridge
 
@@ -265,6 +300,12 @@ claude
 | Opus / Sonnet / heavy-алиасы | `CLAUDE_HEAVY_MODELS`: Opus → Sonnet (без Gemini)     |
 | Остальное                    | Passthrough                                           |
 
+### Сквозной режим (Passthrough)
+
+Если необходимо отключить подмену и fallback моделей (передавать запросы на upstream в исходном виде):
+- Установите `BRIDGE_PASSTHROUGH=1` в `.env` (глобально для всех запросов);
+- Или передавайте HTTP-заголовок `X-Bridge-Passthrough: 1` для отдельных запросов.
+
 Ретраи: `SAME_MODEL_RETRIES + 1` на модель. Cooldown — `COOLDOWN_*` в `.env`.
 
 ---
@@ -283,6 +324,8 @@ claude
 | `QUOTA_POLL_INTERVAL`         | `300`                                                   | Опрос квот, сек                                                    |
 | `CLAUDE_HEAVY_MODELS`         | opus…, sonnet…                                          | Fallback heavy                                                     |
 | `HAIKU_TARGET_MODEL`          | `gemini-3.1-pro-low`                                    | Куда уходит haiku                                                  |
+| `BRIDGE_PASSTHROUGH`          | `0`                                                     | `1` — отключает rewrite и fallback моделей                         |
+| `QUOTA_LIVE_DISPLAY`          | `1`                                                     | `1` — живой монитор квот в консоли (`rich.Live`)                   |
 | `SAME_MODEL_RETRIES`          | `4`                                                     | Доп. попытки на модель                                             |
 | `COOLDOWN_*`                  | 60 / 1800 / 30 / 300                                    | TTL cooldown, сек                                                  |
 
@@ -299,9 +342,14 @@ claude
 
 ## Quota Inspector (опционально)
 
-Не обязателен для работы bridge. Нужны **Git** и **Go**.
+Не обязателен для работы bridge.
 
-### Установка
+> [!TIP]
+> **Варианты использования:**
+> - **Вариант А (готовая сборка из репозитория):** в репозиторий уже включена готовая модифицированная сборка в папке `CLIProxyAPI-Quota-Inspector/`.
+> - **Вариант Б (сборка с нуля из исходников):** требуются **Git** и **Go**.
+
+### Сборка с нуля из исходников
 
 Клонируйте репозиторий (отдельно от bridge) и соберите binary:
 
