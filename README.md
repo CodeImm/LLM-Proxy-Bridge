@@ -71,7 +71,9 @@ Antigravity / доступ к моделям завязан на **Google-акк
 
 | Путь              | Назначение                                 |
 | ----------------- | ------------------------------------------ |
-| `bridge.py`                         | FastAPI reverse-proxy                                                 |
+| `bridge.py`                         | Точка входа bridge (`python bridge.py --help`)                        |
+| `llm_bridge/`                       | Код bridge: конфиг, маршрутизация, upstream, квоты, консольный UI     |
+| `requirements.txt`                  | Зависимости bridge                                                    |
 | `check_models.py`                   | Smoke-тест моделей через bridge                                       |
 | `opus.bat`                          | Быстрый запуск Claude Code → bridge (Opus)                            |
 | `start.bat`                         | Быстрый запуск всех вкладок в Windows Terminal (CPA + bridge + opus) |
@@ -164,7 +166,7 @@ cd C:\tools\CLIProxyAPI   # ваш путь
 
 ```powershell
 cd <корень-этого-репозитория>
-pip install fastapi uvicorn httpx rich python-dotenv
+pip install -r requirements.txt
 copy .env.example .env
 ```
 
@@ -236,6 +238,14 @@ python bridge.py
 
 Слушает `BRIDGE_HOST:BRIDGE_PORT` (по умолчанию `127.0.0.1:4000`).
 
+При запуске bridge спрашивает профиль моделей. Пропустить вопрос: `python bridge.py -p 1`
+(номер или ключ профиля) или `BRIDGE_PROFILE` в `.env`. Все флаги: `python bridge.py --help`.
+
+**Ctrl+C** — корректная остановка: активные запросы получают `BRIDGE_SHUTDOWN_TIMEOUT` секунд
+(по умолчанию 5) на завершение, затем обрываются; повторный Ctrl+C — остановка сразу.
+В конце печатаются итоги сессии. Коды выхода: `0` — штатно, `1` — ошибка (например, порт занят),
+`2` — ошибка конфигурации, `3` — приложение не стартовало.
+
 ```powershell
 curl http://127.0.0.1:4000/health
 python check_models.py
@@ -296,8 +306,8 @@ claude
 
 | Запрос клиента               | Поведение                                             |
 | ---------------------------- | ----------------------------------------------------- |
-| Haiku / id с `haiku`         | → `HAIKU_TARGET_MODEL` (default `gemini-3.1-pro-low`) |
-| Opus / Sonnet / heavy-алиасы | `CLAUDE_HEAVY_MODELS`: Opus → Sonnet (без Gemini)     |
+| Haiku / id с `haiku`         | → Haiku-модель выбранного профиля                     |
+| Opus / Sonnet / heavy-алиасы | Heavy-цепочка профиля (`current`: `CLAUDE_HEAVY_MODELS`, Opus → Sonnet) |
 | Остальное                    | Passthrough                                           |
 
 ### Сквозной режим (Passthrough)
@@ -306,7 +316,9 @@ claude
 - Установите `BRIDGE_PASSTHROUGH=1` в `.env` (глобально для всех запросов);
 - Или передавайте HTTP-заголовок `X-Bridge-Passthrough: 1` для отдельных запросов.
 
-Ретраи: `SAME_MODEL_RETRIES + 1` на модель. Cooldown — `COOLDOWN_*` в `.env`.
+Ретраи: `SAME_MODEL_RETRIES + 1` на модель (таймаут — не больше 2 попыток на модель). Cooldown — `COOLDOWN_*` в `.env`.
+Ошибки запроса (400 и т.п.) сразу возвращаются клиенту без fallback. Если CPA недоступен, bridge
+повторяет попытки, но не переключает модель (все модели идут через тот же CPA).
 
 ---
 
@@ -323,7 +335,10 @@ claude
 | `QUOTA_INSPECTOR_PATH`        | `…/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe` | Путь к `.exe` после `git clone` + `go build`                       |
 | `QUOTA_POLL_INTERVAL`         | `300`                                                   | Опрос квот, сек                                                    |
 | `CLAUDE_HEAVY_MODELS`         | opus…, sonnet…                                          | Fallback heavy                                                     |
-| `HAIKU_TARGET_MODEL`          | `gemini-3.1-pro-low`                                    | Куда уходит haiku                                                  |
+| `BRIDGE_PROFILE`              | —                                                       | Профиль без интерактивного выбора (номер или ключ)                 |
+| `BRIDGE_SHUTDOWN_TIMEOUT`     | `5`                                                     | Сколько секунд ждать активные запросы при Ctrl+C                   |
+| `QUOTA_SHOW_GROUPS`           | — (по профилю)                                          | Фиксированные группы квот вместо групп выбранного профиля          |
+| `QUOTA_MODEL_GROUPS`          | см. `.env.example`                                      | Модель → группа inspector (`gemini-pro-agent=Gemini 3.1 Pro Series`) |
 | `BRIDGE_PASSTHROUGH`          | `0`                                                     | `1` — отключает rewrite и fallback моделей                         |
 | `QUOTA_LIVE_DISPLAY`          | `1`                                                     | `1` — живой монитор квот в консоли (`rich.Live`)                   |
 | `SAME_MODEL_RETRIES`          | `4`                                                     | Доп. попытки на модель                                             |
@@ -337,6 +352,7 @@ claude
 | ------ | -------------- | ---------------------------------------- |
 | `GET`  | `/health`      | Статус, токены, cooldown, snapshot квот  |
 | `POST` | `/v1/messages` | Anthropic Messages (stream / non-stream) |
+| `POST` | `/v1/messages/count_tokens` | Подсчёт токенов (модель подменяется по политике) |
 
 ---
 
