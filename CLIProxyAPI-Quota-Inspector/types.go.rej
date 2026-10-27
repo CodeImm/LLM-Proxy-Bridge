@@ -1,0 +1,8 @@
+--- types.go
++++ types.go
+@@ -91,4 +91,5 @@
+ 		PlusEquivalent7D  float64            `json:"plus_equivalent_7d"`
+ 		GeminiEquivalents map[string]float64 `json:"gemini_equivalents,omitempty"`
+ 		AntigravityEquivs map[string]float64 `json:"antigravity_equivalents,omitempty"`
++		GCPEquivalents    map[string]float64 `json:"gcp_equivalents,omitempty"`
+ 	}

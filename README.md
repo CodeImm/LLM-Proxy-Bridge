@@ -77,7 +77,7 @@ Antigravity / доступ к моделям завязан на **Google-акк
 | `check_models.py`                   | Smoke-тест моделей через bridge                                       |
 | `opus.bat`                          | Быстрый запуск Claude Code → bridge (Opus)                            |
 | `start.bat`                         | Быстрый запуск всех вкладок в Windows Terminal (CPA + bridge + opus) |
-| `CLIProxyAPI_6.9.48_windows_amd64/` | Готовая модифицированная сборка CLIProxyAPI                           |
+| `CLIProxyAPI_8.0.33_windows_amd64/` | Готовая сборка CLIProxyAPI (старая `CLIProxyAPI_6.9.48_…` — для отката) |
 | `CLIProxyAPI-Quota-Inspector/`      | Готовая модифицированная сборка Quota Inspector                       |
 | `.env.example`                      | Шаблон конфига → `copy .env.example .env`                             |
 
@@ -110,7 +110,9 @@ npm install -g @anthropic-ai/claude-code
 
 > [!TIP]
 > **Варианты установки:**
-> - **Вариант А (готовая сборка из репозитория):** вы можете сразу использовать модифицированную сборку из папки `CLIProxyAPI_6.9.48_windows_amd64/`, включённую в данный репозиторий.
+> - **Вариант А (готовая сборка из репозитория):** вы можете сразу использовать модифицированную сборку из папки `CLIProxyAPI_8.0.33_windows_amd64/`, включённую в данный репозиторий.
+>
+> Claude Opus 5.5 / Sonnet 5.5, Gemini 4 Argon и Gemini 3.8 Flash работают только с CPA **v8+**: в 6.9.48 они видны в `/v1/models`, но на запрос отвечают 404. Старый `config.yaml` v8 читает без миграции.
 > - **Вариант Б (установка с нуля):**
 >   1. Скачайте zip для Windows с [релизов CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI/releases) (обычно `CLIProxyAPI_*_windows_amd64.zip`).
 >   2. Распакуйте в нужную папку (например, `C:\tools\CLIProxyAPI\`).
@@ -241,6 +243,14 @@ python bridge.py
 При запуске bridge спрашивает профиль моделей. Пропустить вопрос: `python bridge.py -p 1`
 (номер или ключ профиля) или `BRIDGE_PROFILE` в `.env`. Все флаги: `python bridge.py --help`.
 
+| № | Ключ           | Heavy Claude                                                         | Haiku                      |
+| - | -------------- | -------------------------------------------------------------------- | -------------------------- |
+| 1 | `current`      | `CLAUDE_HEAVY_MODELS`: Opus 5.5 High → Opus 4.6 Thinking → Sonnet 4.6 | `claude-opus-4-6-thinking` |
+| 2 | `gemini`       | `GEMINI_MODEL`: `gemini-4-argon-high`                                 | то же                      |
+| 3 | `gemini-flash` | `GEMINI_FLASH_MODEL`: `gemini-3.8-flash-high`                         | то же                      |
+
+Старые ключи `gemini-pro-agent` и `gemini-3.7-flash-high` по-прежнему принимаются (это профили 2 и 3).
+
 **Ctrl+C** — корректная остановка: активные запросы получают `BRIDGE_SHUTDOWN_TIMEOUT` секунд
 (по умолчанию 5) на завершение, затем обрываются; повторный Ctrl+C — остановка сразу.
 В конце печатаются итоги сессии. Коды выхода: `0` — штатно, `1` — ошибка (например, порт занят),
@@ -307,7 +317,7 @@ claude
 | Запрос клиента               | Поведение                                             |
 | ---------------------------- | ----------------------------------------------------- |
 | Haiku / id с `haiku`         | → Haiku-модель выбранного профиля                     |
-| Opus / Sonnet / heavy-алиасы | Heavy-цепочка профиля (`current`: `CLAUDE_HEAVY_MODELS`, Opus → Sonnet) |
+| Opus / Sonnet / heavy-алиасы | Heavy-цепочка профиля (`current`: `CLAUDE_HEAVY_MODELS`, Opus 5.5 → Opus 4.6 → Sonnet 4.6) |
 | Остальное                    | Passthrough                                           |
 
 ### Сквозной режим (Passthrough)
@@ -334,11 +344,13 @@ claude
 | `CPA_MANAGEMENT_KEY`          | —                                                       | Тот же plaintext, что `remote-management.secret-key` в CPA (квоты) |
 | `QUOTA_INSPECTOR_PATH`        | `…/CLIProxyAPI-Quota-Inspector/cpa-quota-inspector.exe` | Путь к `.exe` после `git clone` + `go build`                       |
 | `QUOTA_POLL_INTERVAL`         | `300`                                                   | Опрос квот, сек                                                    |
-| `CLAUDE_HEAVY_MODELS`         | opus…, sonnet…                                          | Fallback heavy                                                     |
+| `CLAUDE_HEAVY_MODELS`         | opus-5-5-high, opus-4-6-thinking, sonnet-4-6            | Fallback heavy (профиль `current`)                                 |
+| `GEMINI_MODEL`                | `gemini-4-argon-high`                                   | Модель профиля `gemini` (старое имя `GEMINI_PRO_AGENT_MODEL`)      |
+| `GEMINI_FLASH_MODEL`          | `gemini-3.8-flash-high`                                 | Модель профиля `gemini-flash` (старое имя `GEMINI_FLASH_HIGH_MODEL`) |
 | `BRIDGE_PROFILE`              | —                                                       | Профиль без интерактивного выбора (номер или ключ)                 |
 | `BRIDGE_SHUTDOWN_TIMEOUT`     | `5`                                                     | Сколько секунд ждать активные запросы при Ctrl+C                   |
 | `QUOTA_SHOW_GROUPS`           | — (по профилю)                                          | Фиксированные группы квот вместо групп выбранного профиля          |
-| `QUOTA_MODEL_GROUPS`          | см. `.env.example`                                      | Модель → группа inspector (`gemini-pro-agent=Gemini 3.1 Pro Series`) |
+| `QUOTA_MODEL_GROUPS`          | см. `.env.example`                                      | Модель → группа inspector (`gemini-4-argon-high=Gemini 4 Argon`)   |
 | `BRIDGE_PASSTHROUGH`          | `0`                                                     | `1` — отключает rewrite и fallback моделей                         |
 | `QUOTA_LIVE_DISPLAY`          | `1`                                                     | `1` — живой монитор квот в консоли (`rich.Live`)                   |
 | `SAME_MODEL_RETRIES`          | `4`                                                     | Доп. попытки на модель                                             |

@@ -132,10 +132,14 @@ class _EnvReader:
 # Settings
 # ============================================================================
 
-_DEFAULT_HEAVY_MODELS = ("claude-opus-4-6-thinking", "claude-sonnet-4-6")
+_DEFAULT_HEAVY_MODELS = ("claude-opus-5-5-high", "claude-opus-4-6-thinking", "claude-sonnet-4-6")
 _DEFAULT_CURRENT_HAIKU_MODEL = "claude-opus-4-6-thinking"
 
+_DEFAULT_GEMINI_MODEL = "gemini-4-argon-high"
+_DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.8-flash-high"
+
 _DEFAULT_HAIKU_SOURCES = (
+    "claude-haiku-5-5",
     "claude-haiku-4-5-20251001",
     "claude-haiku-4-5",
     "claude-haiku",
@@ -149,8 +153,12 @@ _DEFAULT_HEAVY_ALIASES = (
     "claude-opus-4-6",
     "claude-opus-4-6-thinking",
     "claude-opus-4-7",
+    "claude-opus-5-5",
+    "claude-opus-5-5-high",
     "claude-sonnet",
     "claude-sonnet-4-6",
+    "claude-sonnet-5-5",
+    "claude-sonnet-5-5-high",
     "claude-3-5-sonnet-20241022",
     "claude-3-7-sonnet-20250219",
     "claude-3-opus-20240229",
@@ -174,8 +182,8 @@ class Settings:
     default_profile: str
     heavy_models: tuple[str, ...]
     current_haiku_model: str
-    gemini_pro_agent_model: str
-    gemini_flash_high_model: str
+    gemini_model: str
+    gemini_flash_model: str
     haiku_source_models: tuple[str, ...]
     heavy_aliases: tuple[str, ...]
 
@@ -245,8 +253,11 @@ class Settings:
             default_profile=env.str("BRIDGE_PROFILE", ""),
             heavy_models=env.csv("CLAUDE_HEAVY_MODELS", _DEFAULT_HEAVY_MODELS),
             current_haiku_model=_DEFAULT_CURRENT_HAIKU_MODEL,
-            gemini_pro_agent_model=env.str("GEMINI_PRO_AGENT_MODEL", "gemini-pro-agent"),
-            gemini_flash_high_model=env.str("GEMINI_FLASH_HIGH_MODEL", "gemini-3.7-flash-high"),
+            # Old names (GEMINI_PRO_AGENT_MODEL / GEMINI_FLASH_HIGH_MODEL) still work.
+            gemini_model=env.first("GEMINI_MODEL", "GEMINI_PRO_AGENT_MODEL", default=_DEFAULT_GEMINI_MODEL),
+            gemini_flash_model=env.first(
+                "GEMINI_FLASH_MODEL", "GEMINI_FLASH_HIGH_MODEL", default=_DEFAULT_GEMINI_FLASH_MODEL
+            ),
             haiku_source_models=env.csv("HAIKU_SOURCE_MODELS", _DEFAULT_HAIKU_SOURCES),
             heavy_aliases=env.csv("CLAUDE_HEAVY_ALIASES", _DEFAULT_HEAVY_ALIASES),
             same_model_retries=env.int("SAME_MODEL_RETRIES", 4, lo=0, hi=20),
@@ -311,9 +322,16 @@ class RoutingProfile:
         return tuple(dict.fromkeys((*self.heavy_models, self.haiku_model)))
 
 
+# Profile keys from before the Gemini 4 Argon update, still accepted by --profile / BRIDGE_PROFILE.
+_LEGACY_PROFILE_KEYS = {
+    "gemini-pro-agent": "gemini",
+    "gemini-3.7-flash-high": "gemini-flash",
+}
+
+
 def build_profiles(settings: Settings) -> tuple[RoutingProfile, ...]:
-    pro = settings.gemini_pro_agent_model
-    flash = settings.gemini_flash_high_model
+    main = settings.gemini_model
+    flash = settings.gemini_flash_model
     return (
         RoutingProfile(
             key="current",
@@ -323,16 +341,16 @@ def build_profiles(settings: Settings) -> tuple[RoutingProfile, ...]:
             haiku_model=settings.current_haiku_model,
         ),
         RoutingProfile(
-            key="gemini-pro-agent",
-            title="Gemini Pro Agent",
-            description="Все Claude Heavy + Haiku → Gemini Pro Agent",
-            heavy_models=(pro,),
-            haiku_model=pro,
+            key="gemini",
+            title="Gemini",
+            description=f"Все Claude Heavy + Haiku → {main} (GEMINI_MODEL)",
+            heavy_models=(main,),
+            haiku_model=main,
         ),
         RoutingProfile(
-            key="gemini-3.7-flash-high",
-            title="Gemini 3.7 Flash High",
-            description="Все Claude Heavy + Haiku → Gemini 3.7 Flash High",
+            key="gemini-flash",
+            title="Gemini Flash",
+            description=f"Все Claude Heavy + Haiku → {flash} (GEMINI_FLASH_MODEL)",
             heavy_models=(flash,),
             haiku_model=flash,
         ),
@@ -349,6 +367,7 @@ def find_profile(profiles: tuple[RoutingProfile, ...], choice: str) -> RoutingPr
         if 1 <= index <= len(profiles):
             return profiles[index - 1]
         return None
+    value = _LEGACY_PROFILE_KEYS.get(value, value)
     for profile in profiles:
         if profile.key.lower() == value:
             return profile

@@ -1,7 +1,16 @@
 @echo off
 set ANTHROPIC_BASE_URL=http://localhost:4000
 set ANTHROPIC_API_KEY=sk-any-dummy
-set ANTHROPIC_MODEL=claude-opus-4-6-thinking
-set CLAUDE_CODE_DISABLE_PARALLEL_TOOLS=1
-claude
+@REM set ANTHROPIC_MODEL=claude-opus-4-6-thinking
+set ANTHROPIC_MODEL=gemini-4-argon-high
+@REM set ANTHROPIC_MODEL=gemini-3.8-flash-high
+@REM  set ANTHROPIC_MODEL=claude-opus-5-5-high
+set CLAUDE_CODE_EFFORT_LEVEL=max
+set CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1
+set API_TIMEOUT_MS=1800000
+set API_FORCE_IDLE_TIMEOUT=0
+set CLAUDE_CODE_AUTO_COMPACT_WINDOW=500000
+set CLAUDE_CODE_DISABLE_PARALLEL_TOOLS=0
+claude --bare
+
 

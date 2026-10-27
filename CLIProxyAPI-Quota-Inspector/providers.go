@@ -55,6 +55,14 @@ var (
 		{ID: "claude-gpt", Label: "Claude/GPT", ModelIDs: []string{"claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"}},
 		{ID: "gemini-3-1-pro-series", Label: "Gemini 3.1 Pro Series", ModelIDs: []string{"gemini-3.1-pro-high", "gemini-3.1-pro-low"}},
 		{ID: "gemini-3-pro", Label: "Gemini 3 Pro", ModelIDs: []string{"gemini-3-pro-high", "gemini-3-pro-low"}},
+		// October 2026 models (CLIProxyAPI v8). Their quota pools are not known yet,
+		// so each gets its own window instead of being folded into an existing group.
+		{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", ModelIDs: []string{"claude-opus-5-5-high"}},
+		{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", ModelIDs: []string{"claude-sonnet-5-5-high"}},
+		{ID: "gemini-4-argon", Label: "Gemini 4 Argon", ModelIDs: []string{"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low", "gemini-4-argon"}},
+		{ID: "gemini-3-8-flash", Label: "Gemini 3.8 Flash", ModelIDs: []string{"gemini-3.8-flash-high", "gemini-3.8-flash"}},
+		{ID: "gemini-3-5-flash-lite", Label: "Gemini 3.5 Flash Lite", ModelIDs: []string{"gemini-3.5-flash-lite"}},
+		{ID: "gemini-3-1-flash-lite", Label: "Gemini 3.1 Flash Lite", ModelIDs: []string{"gemini-3.1-flash-lite"}},
 		{ID: "gemini-2-5-flash", Label: "Gemini 2.5 Flash", ModelIDs: []string{"gemini-2.5-flash", "gemini-2.5-flash-thinking"}},
 		{ID: "gemini-2-5-flash-lite", Label: "Gemini 2.5 Flash Lite", ModelIDs: []string{"gemini-2.5-flash-lite"}},
 		{ID: "gemini-2-5-cu", Label: "Gemini 2.5 CU", ModelIDs: []string{"rev19-uic3-1p"}},
@@ -386,20 +394,20 @@ func groupGeminiBuckets(buckets []geminiQuotaBucket) []quotaWindow {
 		{
 			ID:               "gemini-flash-lite-series",
 			Label:            "Gemini Flash Lite Series",
-			PreferredModelID: "gemini-2.5-flash-lite",
-			ModelIDs:         []string{"gemini-2.5-flash-lite"},
+			PreferredModelID: "gemini-3.1-flash-lite",
+			ModelIDs:         []string{"gemini-3.1-flash-lite", "gemini-2.5-flash-lite"},
 		},
 		{
 			ID:               "gemini-flash-series",
 			Label:            "Gemini Flash Series",
-			PreferredModelID: "gemini-3-flash-preview",
-			ModelIDs:         []string{"gemini-3-flash-preview", "gemini-2.5-flash"},
+			PreferredModelID: "gemini-3.8-flash",
+			ModelIDs:         []string{"gemini-3.8-flash", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash"},
 		},
 		{
 			ID:               "gemini-pro-series",
 			Label:            "Gemini Pro Series",
-			PreferredModelID: "gemini-3.1-pro-preview",
-			ModelIDs:         []string{"gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-2.5-pro"},
+			PreferredModelID: "gemini-3.1-pro",
+			ModelIDs:         []string{"gemini-3.1-pro", "gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-2.5-pro"},
 		},
 	}
 	groupByModel := map[string]groupDef{}

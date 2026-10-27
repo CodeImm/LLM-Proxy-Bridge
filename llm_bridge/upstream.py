@@ -41,9 +41,80 @@ from .stats import Stats
 # even if more same-model retries are configured (each timeout can be minutes).
 MAX_TIMEOUTS_PER_MODEL = 2
 
+# Antigravity Claude 4.x caps completion at 64k. A thinking budget at or above
+# that cap is rejected (`max_tokens` must be greater than `thinking.budget_tokens`)
+# even when the client set a larger max_tokens. Claude Code on a third-party
+# base URL sends Opus 5.5 as extended thinking with budget = upper_limit - 1
+# (127999) and max_tokens 128000.
+_THINKING_OUTPUT_CAP = 64_000
+_MIN_THINKING_BUDGET = 1024
+
 
 def encode_json(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+# Families that accept Claude Code's 128k thinking budget. Matched on the
+# family token so ``opus-4-5`` is not treated as Opus 5.
+_UNCAPPED_THINKING_FAMILIES = ("opus-5", "sonnet-5", "haiku-5", "fable", "mythos")
+
+
+def _thinking_budget_capped(model: str) -> bool:
+    """Claude 4.x on this proxy cannot take a thinking budget at the 64k cap."""
+    name = model.lower()
+    if not name.startswith("claude-"):
+        return False
+    return not any(family in name for family in _UNCAPPED_THINKING_FAMILIES)
+
+
+def fit_thinking_budget(body: dict[str, Any]) -> dict[str, Any]:
+    """Make ``thinking.budget_tokens < max_tokens`` for models that enforce it.
+
+    Returns ``body`` unchanged when nothing has to move, so the conversation
+    payload is not copied on the common path.
+    """
+    model = body.get("model")
+    if not isinstance(model, str) or not _thinking_budget_capped(model):
+        return body
+
+    max_tokens = body.get("max_tokens")
+    if type(max_tokens) is not int or max_tokens <= 0:
+        return body
+
+    thinking = body.get("thinking")
+    output = body.get("output_config")
+    budget = thinking.get("budget_tokens") if isinstance(thinking, dict) else None
+    if type(budget) is not int:
+        budget = None
+    effort_max = isinstance(output, dict) and output.get("effort") == "max"
+    if budget is None and not effort_max:
+        return body
+
+    new_max = max_tokens
+    new_budget = budget
+    # effort "max" is translated into a budget at the model cap. The request
+    # only survives when max_tokens itself stays on that cap.
+    if effort_max and new_max > _THINKING_OUTPUT_CAP:
+        new_max = _THINKING_OUTPUT_CAP
+    if new_budget is not None:
+        if new_budget >= _THINKING_OUTPUT_CAP:
+            new_budget = _THINKING_OUTPUT_CAP - 1
+        if new_budget >= new_max:
+            if new_max > _MIN_THINKING_BUDGET:
+                new_budget = new_max - 1
+            else:
+                new_budget = _MIN_THINKING_BUDGET
+                new_max = _MIN_THINKING_BUDGET + 1
+
+    if new_max == max_tokens and new_budget == budget:
+        return body
+
+    fitted = body
+    if new_max != max_tokens:
+        fitted = {**fitted, "max_tokens": new_max}
+    if new_budget != budget and isinstance(thinking, dict):
+        fitted = {**fitted, "thinking": {**thinking, "budget_tokens": new_budget}}
+    return fitted
 
 
 class UpstreamStream:
@@ -145,7 +216,7 @@ class UpstreamClient:
                 ctx.fallbacks += 1
                 self.stats.fallbacks += 1
             ctx.model = model
-            payload = encode_json({**body, "model": model})
+            payload = encode_json(fit_thinking_budget({**body, "model": model}))
             timeouts = 0
 
             for attempt in range(max_attempts):
@@ -277,7 +348,9 @@ class UpstreamClient:
     async def count_tokens(self, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         try:
             response = await self.client.post(
-                self.count_tokens_url, content=encode_json(body), headers=self._headers(stream=False)
+                self.count_tokens_url,
+                content=encode_json(fit_thinking_budget(body)),
+                headers=self._headers(stream=False),
             )
         except httpx.HTTPError as exc:
             message = f"CLIProxyAPI: {_describe(exc)}"

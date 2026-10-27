@@ -70,6 +70,11 @@ MODELS: list[dict] = [
     # ── Claude 5 ──────────────────────────────────────────────────────────────
     {"id": "claude-fable-5",               "tier": "👑", "label": "Fable 5",        "family": "Claude 5"},
     {"id": "claude-sonnet-5",              "tier": "🥈", "label": "Sonnet 5",       "family": "Claude 5"},
+    {"id": "claude-opus-5-5-high",         "tier": "👑", "label": "Opus 5.5 High",  "family": "Claude 5"},
+    {"id": "claude-sonnet-5-5-high",       "tier": "🥈", "label": "Sonnet 5.5 High","family": "Claude 5"},
+    {"id": "claude-opus-5-5",              "tier": "👑", "label": "Opus 5.5",       "family": "Claude 5"},
+    {"id": "claude-sonnet-5-5",            "tier": "🥈", "label": "Sonnet 5.5",     "family": "Claude 5"},
+    {"id": "claude-haiku-5-5",             "tier": "🥉", "label": "Haiku 5.5",      "family": "Claude 5"},
 
     # ── Claude 4.x ────────────────────────────────────────────────────────────
     {"id": "claude-opus-4-8",              "tier": "🥇", "label": "Opus 4.8",       "family": "Claude 4"},
@@ -95,19 +100,29 @@ MODELS: list[dict] = [
     # ══════════════════════════════════════════════════════════════════════════
     #  GOOGLE / GEMINI — кастомные ID прокси
     # ══════════════════════════════════════════════════════════════════════════
-    {"id": "gemini-3-pro-high",            "tier": "⚡", "label": "3 Pro High",     "family": "Gemini (proxy)"},
-    {"id": "gemini-3-pro-low",             "tier": "⚡", "label": "3 Pro Low",      "family": "Gemini (proxy)"},
-    {"id": "gemini-3.1-pro-high",          "tier": "⚡", "label": "3.1 Pro High",   "family": "Gemini (proxy)"},
-    {"id": "gemini-3.1-pro-low",           "tier": "⚡", "label": "3.1 Pro Low",    "family": "Gemini (proxy)"},
-    {"id": "gemini-pro-agent",             "tier": "🤖", "label": "Pro Agent",      "family": "Gemini (proxy)"},
-    {"id": "gemini-3-flash-agent",         "tier": "🤖", "label": "3 Flash Agent",  "family": "Gemini (proxy)"},
-    {"id": "gemini-3.5-flash-low",         "tier": "🔋", "label": "3.5 Flash Low",  "family": "Gemini (proxy)"},
+    {"id": "gemini-4-argon-high",          "tier": "👑", "label": "4 Argon High",   "family": "Gemini (proxy)"},
+    {"id": "gemini-4-argon-medium",        "tier": "👑", "label": "4 Argon Med",    "family": "Gemini (proxy)"},
+    {"id": "gemini-4-argon-low",           "tier": "👑", "label": "4 Argon Low",    "family": "Gemini (proxy)"},
+    {"id": "gemini-3.8-flash-high",        "tier": "⚡", "label": "3.8 Flash High", "family": "Gemini (proxy)"},
+    {"id": "gemini-3.5-flash-lite",        "tier": "🔋", "label": "3.5 Flash Lite", "family": "Gemini (proxy)"},
     {"id": "gemini-3-flash",               "tier": "🔋", "label": "3 Flash",        "family": "Gemini (proxy)"},
+    # Пропали из Antigravity /v1/models к октябрю 2026:
+    {"id": "gemini-3-pro-high",            "tier": "⚠️", "label": "3 Pro High",     "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-3-pro-low",             "tier": "⚠️", "label": "3 Pro Low",      "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-3.1-pro-high",          "tier": "⚠️", "label": "3.1 Pro High",   "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-3.1-pro-low",           "tier": "⚠️", "label": "3.1 Pro Low",    "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-pro-agent",             "tier": "⚠️", "label": "Pro Agent",      "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-3-flash-agent",         "tier": "⚠️", "label": "3 Flash Agent",  "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-3.7-flash-high",        "tier": "⚠️", "label": "3.7 Flash High", "family": "Gemini (proxy)", "deprecated": True},
+    {"id": "gemini-3.5-flash-low",         "tier": "⚠️", "label": "3.5 Flash Low",  "family": "Gemini (proxy)", "deprecated": True},
 
     # ══════════════════════════════════════════════════════════════════════════
     #  GOOGLE / GEMINI — официальные API ID
     # ══════════════════════════════════════════════════════════════════════════
-    {"id": "gemini-3.5-flash",             "tier": "⭐", "label": "3.5 Flash",      "family": "Gemini 3.x"},
+    {"id": "gemini-4-argon",               "tier": "👑", "label": "4 Argon",        "family": "Gemini 4"},
+    {"id": "gemini-3.8-flash",             "tier": "⭐", "label": "3.8 Flash",      "family": "Gemini 3.x"},
+    {"id": "gemini-3.6-flash",             "tier": "⭐", "label": "3.6 Flash",      "family": "Gemini 3.x"},
+    {"id": "gemini-3.5-flash",             "tier": "⚠️", "label": "3.5 Flash",      "family": "Gemini 3.x", "deprecated": True},
     {"id": "gemini-3.1-pro",               "tier": "⭐", "label": "3.1 Pro",        "family": "Gemini 3.x"},
     {"id": "gemini-3.1-pro-preview",       "tier": "⭐", "label": "3.1 Pro Preview","family": "Gemini 3.x"},
     {"id": "gemini-3-pro",                 "tier": "⭐", "label": "3 Pro",          "family": "Gemini 3.x"},
@@ -128,6 +143,9 @@ MODELS: list[dict] = [
 # Claude models that support Anthropic-style thinking body param (not suffix).
 # Newer models: adaptive. Older (4.5, 3.7): manual enabled + budget.
 THINKING_PARAM_ADAPTIVE: set[str] = {
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
     "claude-fable-5",
     "claude-sonnet-5",
     "claude-opus-4-8",

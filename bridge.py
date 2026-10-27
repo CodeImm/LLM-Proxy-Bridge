@@ -1,7 +1,7 @@
 """LLM Bridge — entry point.
 
     python bridge.py                 # interactive profile choice
-    python bridge.py --profile 2     # or: -p gemini-pro-agent
+    python bridge.py --profile 2     # or: -p gemini
     python bridge.py --help
 
 The implementation lives in the ``llm_bridge`` package next to this file.

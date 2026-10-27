@@ -35,7 +35,15 @@ _RATE_TEXTS = (
     "too many requests",
 )
 _AUTH_TEXTS = ("invalid_grant", "unauthorized", "unauthenticated", "invalid api key", "authentication")
-_SKIP_TEXTS = ("not found", "not supported", "unknown model", "invalid model", "does not exist")
+_SKIP_TEXTS = (
+    "not found",
+    "not supported",
+    "unknown model",
+    "invalid model",
+    "does not exist",
+    "unknown provider",  # CPA: no credential serves this model (400/502)
+    "model_not_found",
+)
 _TRANSIENT_TEXTS = (
     "timeout",
     "temporarily unavailable",

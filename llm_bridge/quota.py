@@ -48,14 +48,23 @@ INSPECTOR_MODEL_GROUPS: dict[str, str] = {
     "gemini-2.5-flash-thinking": "Gemini 2.5 Flash",
     "gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
     "gemini-3-flash": "Gemini 3 Flash",
+    # October 2026 models: one window per model until their shared pools are known.
+    "claude-opus-5-5-high": "Claude Opus 5.5",
+    "claude-sonnet-5-5-high": "Claude Sonnet 5.5",
+    "gemini-4-argon-high": "Gemini 4 Argon",
+    "gemini-4-argon-medium": "Gemini 4 Argon",
+    "gemini-4-argon-low": "Gemini 4 Argon",
+    "gemini-4-argon": "Gemini 4 Argon",
+    "gemini-3.8-flash-high": "Gemini 3.8 Flash",
+    "gemini-3.8-flash": "Gemini 3.8 Flash",
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
+    "gemini-3.1-flash-lite": "Gemini 3.1 Flash Lite",
 }
 
 # Models the inspector has no window for, mapped to the closest group.
 # These are assumptions; override with QUOTA_MODEL_GROUPS in .env.
-ASSUMED_MODEL_GROUPS: dict[str, str] = {
-    "gemini-pro-agent": "Gemini 3.1 Pro Series",
-    "gemini-3.7-flash-high": "Gemini 3 Flash",
-}
+# Empty while every profile model has its own inspector window.
+ASSUMED_MODEL_GROUPS: dict[str, str] = {}
 
 
 def quota_group_for_model(model: str, overrides: dict[str, str] | None = None) -> str:

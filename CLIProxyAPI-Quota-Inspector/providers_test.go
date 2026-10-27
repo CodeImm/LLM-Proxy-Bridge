@@ -167,3 +167,51 @@ func TestFilterReportsByProvider(t *testing.T) {
 		t.Fatalf("filterReportsByProvider() = %+v, want only gemini-cli", got)
 	}
 }
+
+func TestParseAntigravityQuotaWindowsNewModels(t *testing.T) {
+	quota := func(fraction float64, reset string) map[string]any {
+		return map[string]any{"quotaInfo": map[string]any{"remainingFraction": fraction, "resetTime": reset}}
+	}
+	payload := map[string]any{
+		"models": map[string]any{
+			"claude-opus-4-6-thinking": quota(0.75, "2026-10-18T20:00:00Z"),
+			"claude-sonnet-4-6":        quota(0.5, "2026-10-18T20:00:00Z"),
+			"claude-opus-5-5-high":     quota(0.25, "2026-10-18T20:00:00Z"),
+			"gemini-4-argon-high":      quota(0.5, "2026-10-18T21:00:00Z"),
+			"gemini-3.8-flash-high":    quota(1.0, "2026-10-18T22:00:00Z"),
+			"gemini-3-flash":           quota(0.75, "2026-10-18T22:00:00Z"),
+		},
+	}
+
+	windows := parseAntigravityQuotaWindows(payload)
+	got := map[string]quotaWindow{}
+	for _, window := range windows {
+		got[window.ID] = window
+	}
+
+	want := map[string]struct {
+		label string
+		pct   float64
+	}{
+		"claude-gpt":       {"Claude/GPT", 50},
+		"claude-opus-5-5":  {"Claude Opus 5.5", 25},
+		"gemini-4-argon":   {"Gemini 4 Argon", 50},
+		"gemini-3-8-flash": {"Gemini 3.8 Flash", 100},
+		"gemini-3-flash":   {"Gemini 3 Flash", 75},
+	}
+	for id, w := range want {
+		window, ok := got[id]
+		if !ok {
+			t.Fatalf("window %q missing; got %d windows", id, len(windows))
+		}
+		if window.Label != w.label {
+			t.Fatalf("window %q label = %q, want %q", id, window.Label, w.label)
+		}
+		if window.RemainingPercent == nil || *window.RemainingPercent != w.pct {
+			t.Fatalf("window %q remaining = %v, want %v", id, window.RemainingPercent, w.pct)
+		}
+	}
+	if _, ok := got["claude-sonnet-5-5"]; ok {
+		t.Fatal("claude-sonnet-5-5 window present without quota data")
+	}
+}
